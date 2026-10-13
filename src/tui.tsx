@@ -1,20 +1,16 @@
-import { createSignal, onCleanup, Show } from "solid-js";
-import {
-  createTextAttributes,
-  type KeyEvent,
-  type TextareaRenderable,
-} from "@opentui/core";
+import { createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-js";
+import { createTextAttributes, type TextareaRenderable } from "@opentui/core";
 import { Plugin } from "@opencode/plugin/tui";
-import type { Context, PanelInput } from "@opencode/plugin/tui/context";
-import { PANEL_NAME, PLUGIN_ID, registerScratchpad } from "./plugin.ts";
+import type { Context } from "@opencode/plugin/tui/context";
+import { PLUGIN_ID, registerScratchpad } from "./plugin.ts";
 import { createStore, type Scratchpad } from "./store.ts";
 import { optionDataDir, resolveDataDir, scratchpadPath } from "./paths.ts";
 
 /** Quiet secondary text: the terminal's own dim attribute, so we stay on-theme. */
 const DIM = createTextAttributes({ dim: true });
 
-/** Idle time before an edit is flushed to disk. */
-const SAVE_DEBOUNCE_MS = 500;
+/** Most lines of a scratchpad the sidebar preview shows before it elides. */
+const MAX_PREVIEW_LINES = 10;
 
 function safeRead(store: Scratchpad): string {
   try {
@@ -24,36 +20,120 @@ function safeRead(store: Scratchpad): string {
   }
 }
 
+/** Resolves this project's scratchpad file path from the plugin context. */
+function projectStore(ctx: Context): Scratchpad {
+  const directory = ctx.location?.directory ?? ctx.data.location.default().directory;
+  const filePath = scratchpadPath(
+    optionDataDir(ctx.options) ?? resolveDataDir(),
+    directory,
+    ctx.options?.ext,
+  );
+  return createStore(filePath);
+}
+
 /**
- * The session-panel contribution. Any panel whose name is not ours renders an
- * empty box so other plugins' panels are left untouched.
+ * Bounded body height for the dialog textarea. The dialog box is content-sized,
+ * so the body grows with the terminal but never past a comfortable reading
+ * height, keeping the header and footer in view on tall terminals.
  */
-export function ScratchpadPanel(props: { ctx: Context; panel: PanelInput }) {
+function dialogBodyHeight(height: number): number {
+  return Math.max(3, Math.min(16, Math.floor(height / 2) - 3));
+}
+
+/** First `MAX_PREVIEW_LINES` lines of the text, plus whether anything was cut. */
+function truncatePreview(raw: string): { lines: string[]; truncated: boolean } {
+  const normalized = raw.replace(/\r\n?/g, "\n").replace(/\s+$/, "");
+  if (normalized.trim().length === 0) return { lines: [], truncated: false };
+  const all = normalized.split("\n");
+  return {
+    lines: all.slice(0, MAX_PREVIEW_LINES),
+    truncated: all.length > MAX_PREVIEW_LINES,
+  };
+}
+
+/**
+ * The session-sidebar contribution: an always-present "Scratchpad" row that
+ * expands in place to a read-only, truncated preview of the current text.
+ *
+ * The scratchpad is per-project, so `sessionID` is only a remount key; the
+ * expanded/collapsed state lives in ephemeral storage keyed by the plugin id so
+ * it survives session switches.
+ */
+export function ScratchpadSidebar(props: { ctx: Context; sessionID: string }) {
+  const store = projectStore(props.ctx);
+
+  const [state, setState] = props.ctx.storage.memory(PLUGIN_ID, {
+    initial: { expanded: false },
+  });
+  const toggle = () =>
+    setState((draft) => {
+      draft.expanded = !draft.expanded;
+    });
+
+  // Re-read from disk whenever the section is expanded, so edits made in the
+  // modal show up after collapsing and reopening the row.
+  const preview = createMemo(() => {
+    if (!state.expanded) return null;
+    return truncatePreview(safeRead(store));
+  });
+
   return (
-    <Show when={props.panel.name === PANEL_NAME} fallback={<box />}>
-      <ScratchpadEditor ctx={props.ctx} panel={props.panel} />
-    </Show>
+    <box flexDirection="column" paddingY={1} gap={1}>
+      <box
+        flexDirection="row"
+        gap={1}
+        paddingX={1}
+        width="100%"
+        onMouseDown={toggle}
+      >
+        <text attributes={DIM}>{state.expanded ? "▾" : "▸"}</text>
+        <text>
+          <b>Scratchpad</b>
+        </text>
+      </box>
+
+      <Show when={preview()}>
+        {(view: () => { lines: string[]; truncated: boolean }) => (
+          <box flexDirection="column" gap={1} paddingX={1}>
+            <Show
+              when={view().lines.length > 0}
+              fallback={<text attributes={DIM}>No notes yet</text>}
+            >
+              <box flexDirection="column">
+                <For each={view().lines}>
+                  {(line) => (
+                    <text wrapMode="none" truncate>
+                      {line.length > 0 ? line : " "}
+                    </text>
+                  )}
+                </For>
+                <Show when={view().truncated}>
+                  <text attributes={DIM}>…</text>
+                </Show>
+              </box>
+            </Show>
+            <text attributes={DIM}>Use /scratch to edit</text>
+          </box>
+        )}
+      </Show>
+    </box>
   );
 }
 
-function ScratchpadEditor(props: { ctx: Context; panel: PanelInput }) {
-  const directory =
-    props.ctx.location?.directory ?? props.ctx.data.location.default().directory;
-  const filePath = scratchpadPath(
-    optionDataDir(props.ctx.options) ?? resolveDataDir(),
-    directory,
-    props.ctx.options?.ext,
-  );
-  const store = createStore(filePath);
-
-  // Seed the buffer from disk once. A missing file simply reads as "".
-  const initial = safeRead(store);
+/**
+ * The modal editing surface, shown inside the host's command-palette shell. It
+ * seeds from the store, saves on unmount, and keeps its textarea height bounded
+ * to the renderer.
+ */
+function ScratchpadDialog(props: { ctx: Context; store: Scratchpad }) {
+  const initial = safeRead(props.store);
   const [value, setValue] = createSignal(initial);
   const [dirty, setDirty] = createSignal(false);
 
   let textarea: TextareaRenderable | undefined;
   let lastSaved = initial;
-  let timer: ReturnType<typeof setTimeout> | undefined;
+
+  const bodyHeight = dialogBodyHeight(props.ctx.renderer?.height ?? 0);
 
   const readCurrent = () => {
     try {
@@ -63,14 +143,10 @@ function ScratchpadEditor(props: { ctx: Context; panel: PanelInput }) {
     }
   };
 
-  const persist = (announce: boolean) => {
-    if (timer !== undefined) {
-      clearTimeout(timer);
-      timer = undefined;
-    }
+  const persist = () => {
     const text = readCurrent();
     try {
-      store.write(text);
+      props.store.write(text);
     } catch {
       props.ctx.ui.toast.show({
         message: "Could not save scratchpad",
@@ -81,51 +157,48 @@ function ScratchpadEditor(props: { ctx: Context; panel: PanelInput }) {
     lastSaved = text;
     setValue(text);
     setDirty(false);
-    if (announce) {
-      props.ctx.ui.toast.show({ message: "Scratchpad saved", variant: "success" });
-    }
-  };
-
-  const schedule = () => {
-    if (timer !== undefined) {
-      clearTimeout(timer);
-    }
-    timer = setTimeout(() => {
-      timer = undefined;
-      persist(false);
-    }, SAVE_DEBOUNCE_MS);
   };
 
   const handleChange = () => {
     const text = readCurrent();
     setValue(text);
-    const changed = text !== lastSaved;
-    setDirty(changed);
-    if (changed) schedule();
+    setDirty(text !== lastSaved);
   };
 
-  const handleKeyDown = (event: KeyEvent) => {
-    if (event.name === "escape") {
-      event.preventDefault();
-      if (dirty()) persist(false);
-      props.panel.close();
-      return;
-    }
-    if (event.ctrl && !event.meta && !event.shift && event.name === "s") {
-      event.preventDefault();
-      persist(true);
-    }
-  };
+  // Enter is bound to the global input.submit action and consumed before it
+  // reaches the textarea. A higher-priority layer that mirrors the host's own
+  // dialog overrides (mode "modal", priority 1, scoped to the textarea) turns
+  // return into a newline. Omitting a return value consumes the key so
+  // input.submit does not also fire.
+  props.ctx.keymap.layer(() => ({
+    mode: "modal",
+    priority: 1,
+    target: () => textarea ?? null,
+    commands: [
+      {
+        bind: "return",
+        run: () => {
+          textarea?.insertText("\n");
+        },
+      },
+    ],
+  }));
 
-  // Flush any pending edit when the panel unmounts.
+  // The dialog shell focuses nothing; the textarea must claim focus itself.
+  onMount(() => {
+    setTimeout(() => {
+      const node = textarea;
+      if (!node || node.isDestroyed) return;
+      node.focus();
+    }, 1);
+  });
+
+  // Esc, backdrop, or clear() all unmount the dialog; saving here keeps the
+  // close path single-sourced.
   onCleanup(() => {
-    if (timer !== undefined) {
-      clearTimeout(timer);
-      timer = undefined;
-    }
     if (dirty()) {
       try {
-        store.write(readCurrent());
+        props.store.write(readCurrent());
       } catch {
         // Unmount is not the place to surface errors.
       }
@@ -133,44 +206,38 @@ function ScratchpadEditor(props: { ctx: Context; panel: PanelInput }) {
   });
 
   return (
-    <box flexDirection="column" flexGrow={1} width="100%" height="100%" paddingX={1} gap={1}>
-      <box flexDirection="column">
-        <box flexDirection="row" justifyContent="space-between" gap={2}>
-          <text>
-            <b>Scratchpad</b>
-          </text>
-          <text attributes={DIM} wrapMode="none" truncate>
-            {props.ctx.ui.format.path(directory)}
-          </text>
-        </box>
-        <text attributes={DIM} wrapMode="none" truncate>
-          <i>{filePath}</i>
+    <box flexDirection="column" gap={1} paddingLeft={2} paddingRight={2} paddingBottom={1}>
+      <box flexDirection="row" justifyContent="space-between" gap={2}>
+        <text>
+          <b>Scratchpad</b>
         </text>
+        <text attributes={DIM}>esc</text>
       </box>
 
-      <box flexGrow={1} border borderStyle="rounded" paddingX={1}>
-        <textarea
-          ref={(node: TextareaRenderable) => {
-            textarea = node;
-          }}
-          flexGrow={1}
-          focused={props.panel.focused}
-          initialValue={initial}
-          placeholder="Type your notes…"
-          wrapMode="word"
-          onContentChange={handleChange}
-          onKeyDown={handleKeyDown}
-        />
-      </box>
+      <textarea
+        ref={(node: TextareaRenderable) => {
+          textarea = node;
+        }}
+        height={bodyHeight}
+        initialValue={initial}
+        placeholder="Type your notes…"
+        wrapMode="word"
+        onContentChange={handleChange}
+      />
 
       <box flexDirection="row" justifyContent="space-between" gap={2}>
-        <text attributes={DIM}>Ctrl+S save · Esc close</text>
+        <text attributes={DIM}>Enter adds a line · Esc saves</text>
         <Show when={dirty()} fallback={<text attributes={DIM}>saved</text>}>
           <text>● unsaved</text>
         </Show>
       </box>
     </box>
   );
+}
+
+/** Opens the scratchpad modal editor through the host's dialog shell. */
+export function openScratchpadDialog(ctx: Context, store: Scratchpad): void {
+  ctx.ui.dialog.show(() => <ScratchpadDialog ctx={ctx} store={store} />, () => {});
 }
 
 export default Plugin.define({
@@ -180,7 +247,10 @@ export default Plugin.define({
       createStore,
       resolveDataDir,
       scratchpadPath,
-      renderPanel: (input) => <ScratchpadPanel ctx={ctx} panel={input} />,
+      renderSidebar: (sessionID) => (
+        <ScratchpadSidebar ctx={ctx} sessionID={sessionID} />
+      ),
+      openDialog: (store) => openScratchpadDialog(ctx, store),
     });
   },
 });

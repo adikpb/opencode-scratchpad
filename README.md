@@ -6,15 +6,16 @@ Per-project scratchpad TUI plugin for OpenCode: capture and edit notes per proje
 
 OpenCode sessions come and go, but every project accumulates little things worth keeping: a command you keep re-deriving, a decision and its rationale, the next step you don't want to lose. Context switching to an external notes app breaks your flow and scatters your notes across tools.
 
-`opencode-scratchpad` gives each project **one private scratchpad** — a single free-form text document you can capture into and edit without leaving the TUI. It is not a list of notes or a task manager; it is one surface per project, always in the same place.
+`opencode-scratchpad` gives each project **one private scratchpad** — a single free-form text document you can capture into and edit without leaving the TUI. It is not a list of notes or a task manager; it is one document per project, always in the same place.
 
 ## Features
 
 - **One scratchpad per project**, keyed by the project's absolute path.
 - **`/scratch` command**
   - `/scratch <text>` appends a line of text to the current project's scratchpad and shows a confirmation toast.
-  - `/scratch` (no argument) opens the editing panel.
-- **Editing panel** — an editable textarea with a header (title, project directory, file path) and a footer (key hints, saved indicator). `Ctrl+S` saves, `Esc` closes.
+  - `/scratch` (no argument) opens the modal editor — on any terminal width.
+- **Modal editor** — a command-palette-style dialog with an editable textarea, a key hint, and a saved indicator. `Enter` adds a new line; `Esc` saves and closes.
+- **Sidebar preview** — the session sidebar shows an always-present collapsed **Scratchpad** dropdown. Click it to expand a read-only, truncated preview of the current notes; click again to collapse. It is never editable.
 - **Private and local** — no network calls, no telemetry, and nothing written into your git repo.
 - **Plain Markdown on disk** — one file per project, easy to back up, grep, or delete.
 
@@ -66,22 +67,25 @@ OpenCode loads the local directory through the `tui.js` and `server.js` entry fo
 
 The line is appended to the current project's scratchpad and a toast confirms the write.
 
-### Open the panel
+### Open the editor
 
 ```
 /scratch
 ```
 
-> The panel opens **inside the current session**. On a fresh home screen with no active session, opening a panel is a no-op — start or resume a session first. You can also run **Scratchpad** from the command palette (`Ctrl+P`).
+The editor opens as a modal dialog styled like the command palette (`Ctrl+P`), on any terminal width. You can also run **Scratchpad** from the command palette (`Ctrl+P`).
 
-The panel is the single editing surface:
+| Key   | Action           |
+| ----- | ---------------- |
+| `Esc` | Save and close   |
 
-| Key     | Action      |
-| ------- | ----------- |
-| `Ctrl+S` | Save        |
-| `Esc`    | Close panel |
+`Enter` adds a new line, so multi-line notes stay easy to write. Your edits are written to disk when you close the editor.
 
-The header shows the title, project directory, and file path; the footer shows the key hints and a saved indicator.
+#### Sidebar preview
+
+The session sidebar also carries an always-present **Scratchpad** row. Collapsed by default, it expands on click to a read-only preview of the current notes — the first ~10 lines, with an ellipsis when there is more. Click the row again to collapse it. The preview re-reads the file each time you expand it, so edits you make in the modal show up the next time you open it.
+
+> **Sidebar visibility is host-controlled.** The sidebar is shown by default only on wider terminals (more than 120 columns) and can be toggled on narrower ones. A plugin cannot force it visible; when it is hidden, the `/scratch` modal editor still works.
 
 ## Storage & Privacy
 

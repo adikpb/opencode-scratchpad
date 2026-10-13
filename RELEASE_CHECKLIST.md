@@ -9,7 +9,8 @@ A practical, ordered checklist for publishing `opencode-scratchpad` to npm and G
 - [ ] `bun run typecheck` — `tsc --noEmit` reports no errors.
 - [ ] Manually smoke-test in a real OpenCode v2 session:
   - [ ] `/scratch <text>` appends a line and shows the confirmation toast.
-  - [ ] `/scratch` opens the panel; `Ctrl+S` saves and `Esc` closes.
+  - [ ] `/scratch` opens the modal editor on any terminal width; `Esc` saves and closes.
+  - [ ] The session sidebar shows a collapsed **Scratchpad** row that expands to a read-only, truncated preview (visible by default only on wider terminals).
   - [ ] The file lands at `$OPENCODE_DATA_DIR/scratchpad/<projectKey>.md`.
 
 ## 2. Package metadata
@@ -28,7 +29,7 @@ A practical, ordered checklist for publishing `opencode-scratchpad` to npm and G
 
 ## 3. Documentation
 
-- [ ] README is accurate: command, panel keys, storage path, privacy, configuration, development.
+- [ ] README is accurate: command, editor keys, storage path, privacy, configuration, development.
 - [ ] `examples/opencode.json` matches the current V2 `plugins` config shape.
 - [ ] `CHANGELOG` (optional) notes the user-visible changes for this version.
 

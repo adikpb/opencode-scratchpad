@@ -1,12 +1,9 @@
-import type { Context, PanelInput } from "@opencode/plugin/tui/context";
+import type { Context } from "@opencode/plugin/tui/context";
 import { optionDataDir } from "./paths.ts";
 import type { Scratchpad } from "./store.ts";
 
 /** Stable plugin identity, shared by the TUI and server entries. */
 export const PLUGIN_ID = "opencode-scratchpad";
-
-/** Name of the session panel this plugin owns. */
-export const PANEL_NAME = "opencode-scratchpad";
 
 /** Stable command identifier used by the palette, slash completion, and keyconfig. */
 export const COMMAND_ID = "opencode-scratchpad.open";
@@ -20,13 +17,19 @@ export interface ScratchpadDeps {
   createStore: (filePath: string) => Scratchpad;
   resolveDataDir: (env?: Record<string, string | undefined>) => string;
   scratchpadPath: (dataDir: string, directory: string, ext?: string) => string;
-  /** JSX element factory injected by tui.tsx. */
-  renderPanel: (panel: PanelInput) => any;
+  /** Session-sidebar contribution factory injected by tui.tsx. */
+  renderSidebar: (sessionID: string) => any;
+  /** Opens the dialog editor injected by tui.tsx. */
+  openDialog: (store: Scratchpad) => void;
 }
 
 /**
  * Wires the scratchpad into a live TUI context: a palette/slash command that
- * appends to or opens the pad, and a claim on the session.panel slot.
+ * appends to the pad or opens the modal editor, and a persistent claim on the
+ * session sidebar's content slot.
+ *
+ * `/scratch` with no argument always opens the modal dialog editor; the sidebar
+ * claim is a separate, always-present reading surface.
  *
  * Returns a cleanup that releases the slot claim. The keymap layer is owned by
  * the plugin lifecycle and disposes with it.
@@ -55,15 +58,15 @@ export function registerScratchpad(ctx: Context, deps: ScratchpadDeps): () => vo
             ctx.ui.toast.show({ message: "Saved to scratchpad", variant: "success" });
             return;
           }
-          ctx.ui.panel.open(PANEL_NAME);
+          deps.openDialog(store);
         },
       },
     ],
   }));
 
   const unclaim = ctx.ui.slot({
-    append: "session.panel",
-    render: (input) => deps.renderPanel(input),
+    append: "sidebar.content",
+    render: (input) => deps.renderSidebar(input.sessionID),
   });
 
   return () => {

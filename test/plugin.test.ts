@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { COMMAND_ID, PANEL_NAME, registerScratchpad } from "../src/plugin.ts";
+import { COMMAND_ID, registerScratchpad } from "../src/plugin.ts";
 
 interface Harness {
   ctx: any;
@@ -7,12 +7,19 @@ interface Harness {
   layers: any[];
   claims: any[];
   toasts: any[];
-  opens: string[];
+  openDialogCalls: any[];
+  dialogShows: any[];
   appends: string[];
   writes: string[];
   storePaths: string[];
   pathArgs: Array<[string, string, string | undefined]>;
+  sidebarRenders: string[];
   slotDisposed: { value: boolean };
+}
+
+interface HarnessConfig {
+  /** Terminal width in columns; omit to model a context with no renderer. */
+  terminalWidth?: number;
 }
 
 interface InMemoryStore {
@@ -24,15 +31,17 @@ interface InMemoryStore {
   exists(): boolean;
 }
 
-function createHarness(): Harness {
+function createHarness(config: HarnessConfig = {}): Harness {
   const layers: any[] = [];
   const claims: any[] = [];
   const toasts: any[] = [];
-  const opens: string[] = [];
+  const openDialogCalls: any[] = [];
+  const dialogShows: any[] = [];
   const appends: string[] = [];
   const writes: string[] = [];
   const storePaths: string[] = [];
   const pathArgs: Array<[string, string, string | undefined]> = [];
+  const sidebarRenders: string[] = [];
   const slotDisposed = { value: false };
 
   const store: InMemoryStore = {
@@ -59,6 +68,10 @@ function createHarness(): Harness {
     options: {},
     location: { directory: "/repo/project" },
     data: { location: { default: () => ({ directory: "/fallback/dir" }) } },
+    renderer:
+      config.terminalWidth === undefined
+        ? undefined
+        : { width: config.terminalWidth, height: 40 },
     keymap: {
       layer: (factory: () => any) => {
         layers.push(factory());
@@ -70,10 +83,9 @@ function createHarness(): Harness {
           toasts.push(options);
         },
       },
-      panel: {
-        open: (name: string) => {
-          opens.push(name);
-          return true;
+      dialog: {
+        show: (render: any, onClose?: any) => {
+          dialogShows.push({ render, onClose });
         },
       },
       slot: (claim: any) => {
@@ -95,7 +107,13 @@ function createHarness(): Harness {
       pathArgs.push([dataDir, directory, ext]);
       return `${dataDir}/${directory.replace(/\//g, "_")}.${ext ?? "md"}`;
     },
-    renderPanel: (panel: unknown) => panel,
+    renderSidebar: (sessionID: string) => {
+      sidebarRenders.push(sessionID);
+      return { sessionID };
+    },
+    openDialog: (dialogStore: unknown) => {
+      openDialogCalls.push(dialogStore);
+    },
   };
 
   return {
@@ -104,11 +122,13 @@ function createHarness(): Harness {
     layers,
     claims,
     toasts,
-    opens,
+    openDialogCalls,
+    dialogShows,
     appends,
     writes,
     storePaths,
     pathArgs,
+    sidebarRenders,
     slotDisposed,
   };
 }
@@ -148,7 +168,7 @@ describe("registerScratchpad", () => {
       message: "Saved to scratchpad",
       variant: "success",
     });
-    expect(h.opens).toEqual([]);
+    expect(h.openDialogCalls).toEqual([]);
   });
 
   test("trims whitespace around appended input", async () => {
@@ -160,30 +180,44 @@ describe("registerScratchpad", () => {
     expect(h.appends).toEqual(["spaced"]);
   });
 
-  test("opens the panel when input is empty", async () => {
-    const h = createHarness();
-    registerScratchpad(h.ctx, h.deps);
+  test("always opens the dialog with no argument, at any width", async () => {
+    for (const width of [undefined, 200, 120, 81, 80, 40, 0]) {
+      const h = createHarness(
+        width === undefined ? {} : { terminalWidth: width },
+      );
+      registerScratchpad(h.ctx, h.deps);
 
-    const command = commandOf(h);
-    await command.run();
-    await command.run("");
-    await command.run("   ");
+      const command = commandOf(h);
+      await command.run();
+      await command.run("");
+      await command.run("   ");
 
-    expect(h.opens).toEqual([PANEL_NAME, PANEL_NAME, PANEL_NAME]);
-    expect(h.appends).toEqual([]);
-    expect(h.toasts).toEqual([]);
+      expect(h.openDialogCalls).toHaveLength(3);
+      expect(h.appends).toEqual([]);
+      expect(h.toasts).toEqual([]);
+    }
   });
 
-  test("claims the session.panel slot and renders via renderPanel", () => {
+  test("appending text never opens the dialog", async () => {
+    const h = createHarness({ terminalWidth: 40 });
+    registerScratchpad(h.ctx, h.deps);
+
+    await commandOf(h).run("a note");
+
+    expect(h.openDialogCalls).toEqual([]);
+    expect(h.toasts).toHaveLength(1);
+  });
+
+  test("claims the sidebar.content slot and renders via renderSidebar", () => {
     const h = createHarness();
     registerScratchpad(h.ctx, h.deps);
 
     expect(h.claims).toHaveLength(1);
     const claim = h.claims[0];
-    expect(claim.append).toBe("session.panel");
+    expect(claim.append).toBe("sidebar.content");
 
-    const input = { name: PANEL_NAME, sessionID: "ses_1" };
-    expect(claim.render(input)).toBe(input);
+    expect(claim.render({ sessionID: "ses_1" })).toEqual({ sessionID: "ses_1" });
+    expect(h.sidebarRenders).toEqual(["ses_1"]);
   });
 
   test("resolves the store from the active location directory", () => {
