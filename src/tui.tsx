@@ -12,6 +12,14 @@ const DIM = createTextAttributes({ dim: true });
 /** Most lines of a scratchpad the sidebar preview shows before it elides. */
 const MAX_PREVIEW_LINES = 10;
 
+/**
+ * Bumped whenever the scratchpad file changes from a save. The sidebar preview
+ * re-reads from disk only when its memo re-runs, so without this the read-only
+ * row would stay stale while it remains expanded after an edit.
+ */
+const [scratchpadRevision, setScratchpadRevision] = createSignal(0);
+const markScratchpadChanged = () => setScratchpadRevision((n) => n + 1);
+
 function safeRead(store: Scratchpad): string {
   try {
     return store.read();
@@ -73,6 +81,7 @@ export function ScratchpadSidebar(props: { ctx: Context; sessionID: string }) {
   // Re-read from disk whenever the section is expanded, so edits made in the
   // modal show up after collapsing and reopening the row.
   const preview = createMemo(() => {
+    scratchpadRevision();
     if (!state.expanded) return null;
     return truncatePreview(safeRead(store));
   });
@@ -125,7 +134,11 @@ export function ScratchpadSidebar(props: { ctx: Context; sessionID: string }) {
  * seeds from the store, saves on unmount, and keeps its textarea height bounded
  * to the renderer.
  */
-function ScratchpadDialog(props: { ctx: Context; store: Scratchpad }) {
+function ScratchpadDialog(props: {
+  ctx: Context;
+  store: Scratchpad;
+  onSaved: () => void;
+}) {
   const initial = safeRead(props.store);
   const [value, setValue] = createSignal(initial);
   const [dirty, setDirty] = createSignal(false);
@@ -157,6 +170,7 @@ function ScratchpadDialog(props: { ctx: Context; store: Scratchpad }) {
     lastSaved = text;
     setValue(text);
     setDirty(false);
+    props.onSaved();
   };
 
   const handleChange = () => {
@@ -199,6 +213,7 @@ function ScratchpadDialog(props: { ctx: Context; store: Scratchpad }) {
     if (dirty()) {
       try {
         props.store.write(readCurrent());
+        props.onSaved();
       } catch {
         // Unmount is not the place to surface errors.
       }
@@ -237,7 +252,13 @@ function ScratchpadDialog(props: { ctx: Context; store: Scratchpad }) {
 
 /** Opens the scratchpad modal editor through the host's dialog shell. */
 export function openScratchpadDialog(ctx: Context, store: Scratchpad): void {
-  ctx.ui.dialog.show(() => <ScratchpadDialog ctx={ctx} store={store} />, () => {});
+  ctx.ui.dialog.show(
+    () => (
+      <ScratchpadDialog ctx={ctx} store={store} onSaved={markScratchpadChanged} />
+    ),
+    // Closed without edits still resolves the read side; saves bump it directly.
+    () => markScratchpadChanged(),
+  );
 }
 
 export default Plugin.define({
