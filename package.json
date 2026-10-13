@@ -1,7 +1,7 @@
 {
   "name": "opencode-scratchpad",
   "version": "0.1.0",
-  "description": "Per-project scratchpad TUI plugin for OpenCode: capture and read notes without leaving your session.",
+  "description": "Per-project scratchpad TUI plugin for OpenCode: capture and edit notes per project, stored privately outside your repo.",
   "type": "module",
   "license": "MIT",
   "exports": {

@@ -154,8 +154,8 @@ bun run typecheck # type-check with tsc --noEmit
 
 ## Contributing
 
-Issues and pull requests are welcome at `https://github.com/YOUR_GITHUB_USER/opencode-scratchpad`. Please run `bun test` and `bun run typecheck` before opening a PR, and keep the scope focused on the single-scratchpad-per-project model.
+Issues and pull requests are welcome at `https://github.com/adikpb/opencode-scratchpad`. Please run `bun test` and `bun run typecheck` before opening a PR, and keep the scope focused on the single-scratchpad-per-project model.
 
 ## License
 
-[MIT](./LICENSE) © 2026 YOUR_GITHUB_USER
+[MIT](./LICENSE) © 2026 adikpb
