@@ -5,6 +5,7 @@ import type { Context } from "@opencode/plugin/tui/context";
 import { PLUGIN_ID, registerScratchpad } from "./plugin.ts";
 import { createStore, type Scratchpad } from "./store.ts";
 import { optionDataDir, resolveDataDir, scratchpadPath } from "./paths.ts";
+import { EDITOR_COMMAND_ID, editTextExternally } from "./editor.ts";
 
 /** Quiet secondary text: the terminal's own dim attribute, so we stay on-theme. */
 const DIM = createTextAttributes({ dim: true });
@@ -28,12 +29,16 @@ function safeRead(store: Scratchpad): string {
   }
 }
 
+/** Resolves this project's directory from the plugin context. */
+function projectDirectory(ctx: Context): string {
+  return ctx.location?.directory ?? ctx.data.location.default().directory;
+}
+
 /** Resolves this project's scratchpad file path from the plugin context. */
 function projectStore(ctx: Context): Scratchpad {
-  const directory = ctx.location?.directory ?? ctx.data.location.default().directory;
   const filePath = scratchpadPath(
     optionDataDir(ctx.options) ?? resolveDataDir(),
-    directory,
+    projectDirectory(ctx),
     ctx.options?.ext,
   );
   return createStore(filePath);
@@ -179,6 +184,30 @@ function ScratchpadDialog(props: {
     setDirty(text !== lastSaved);
   };
 
+  const openInEditor = async () => {
+    try {
+      const updated = await editTextExternally({
+        value: readCurrent(),
+        cwd: projectDirectory(props.ctx),
+        renderer: props.ctx.renderer,
+      });
+      if (updated === undefined) return;
+      const node = textarea;
+      if (node && !node.isDestroyed) {
+        node.replaceText(updated);
+        node.cursorOffset = updated.length;
+      }
+      setValue(updated);
+      setDirty(updated !== lastSaved);
+    } catch (error) {
+      props.ctx.ui.toast.show({
+        title: "Failed to open editor",
+        message: error instanceof Error ? error.message : String(error),
+        variant: "error",
+      });
+    }
+  };
+
   // Enter is bound to the global input.submit action and consumed before it
   // reaches the textarea. A higher-priority layer that mirrors the host's own
   // dialog overrides (mode "modal", priority 1, scoped to the textarea) turns
@@ -193,6 +222,15 @@ function ScratchpadDialog(props: {
         bind: "return",
         run: () => {
           textarea?.insertText("\n");
+        },
+      },
+      {
+        id: EDITOR_COMMAND_ID,
+        title: "Open scratchpad in editor",
+        group: "Plugins",
+        bind: "<leader>e",
+        run: () => {
+          void openInEditor();
         },
       },
     ],
@@ -241,7 +279,7 @@ function ScratchpadDialog(props: {
       />
 
       <box flexDirection="row" justifyContent="space-between" gap={2}>
-        <text attributes={DIM}>Enter adds a line · Esc saves</text>
+        <text attributes={DIM}>Enter adds a line · leader+e opens editor · Esc saves</text>
         <Show when={dirty()} fallback={<text attributes={DIM}>saved</text>}>
           <text>● unsaved</text>
         </Show>

@@ -78,8 +78,9 @@ The editor opens as a modal dialog styled like the command palette (`Ctrl+P`), o
 | Key   | Action           |
 | ----- | ---------------- |
 | `Esc` | Save and close   |
+| `<leader>e` | Open the scratchpad in `$VISUAL`/`$EDITOR` |
 
-`Enter` adds a new line, so multi-line notes stay easy to write. Your edits are written to disk when you close the editor.
+`Enter` adds a new line, so multi-line notes stay easy to write. Your edits are written to disk when you close the editor. The `<leader>e` shortcut is a bindable command with id `opencode-scratchpad.editor`, configurable via `keybinds` in `tui.json` (e.g. `"keybinds": { "opencode-scratchpad.editor": "<leader>e" }`).
 
 #### Sidebar preview
 
