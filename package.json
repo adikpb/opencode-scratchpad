@@ -4,6 +4,15 @@
   "description": "Per-project scratchpad TUI plugin for OpenCode: capture and edit notes per project, stored privately outside your repo.",
   "type": "module",
   "license": "MIT",
+  "author": "adikpb",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/adikpb/opencode-scratchpad.git"
+  },
+  "homepage": "https://github.com/adikpb/opencode-scratchpad#readme",
+  "bugs": {
+    "url": "https://github.com/adikpb/opencode-scratchpad/issues"
+  },
   "exports": {
     ".": "./src/index.ts",
     "./server": "./src/index.ts",
@@ -19,9 +28,17 @@
   "keywords": [
     "opencode",
     "opencode-plugin",
+    "opencode-ai",
+    "opencode-v2",
+    "opencode-tui",
+    "opentui",
     "tui",
+    "plugin",
     "scratchpad",
-    "notes"
+    "notes",
+    "markdown",
+    "ai",
+    "coding-agent"
   ],
   "scripts": {
     "test": "bun test",
