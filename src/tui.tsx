@@ -1,14 +1,11 @@
 import { createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-js";
-import { createTextAttributes, type TextareaRenderable } from "@opentui/core";
+import type { TextareaRenderable } from "@opentui/core";
 import { Plugin } from "@opencode/plugin/tui";
 import type { Context } from "@opencode/plugin/tui/context";
 import { PLUGIN_ID, registerScratchpad } from "./plugin.ts";
 import { createStore, type Scratchpad } from "./store.ts";
 import { optionDataDir, resolveDataDir, scratchpadPath } from "./paths.ts";
 import { EDITOR_COMMAND_ID, editTextExternally } from "./editor.ts";
-
-/** Quiet secondary text: the terminal's own dim attribute, so we stay on-theme. */
-const DIM = createTextAttributes({ dim: true });
 
 /** Most lines of a scratchpad the sidebar preview shows before it elides. */
 const MAX_PREVIEW_LINES = 10;
@@ -74,6 +71,8 @@ function truncatePreview(raw: string): { lines: string[]; truncated: boolean } {
  */
 export function ScratchpadSidebar(props: { ctx: Context; sessionID: string }) {
   const store = projectStore(props.ctx);
+  // Captured, never destructured: each token is a live getter into the host theme.
+  const theme = props.ctx.theme;
 
   const [state, setState] = props.ctx.storage.memory(PLUGIN_ID, {
     initial: { expanded: false },
@@ -91,42 +90,43 @@ export function ScratchpadSidebar(props: { ctx: Context; sessionID: string }) {
     return truncatePreview(safeRead(store));
   });
 
+  // No padding or background here: the host already insets the
+  // `sidebar.content` slot by 2 cells and gaps sibling sections.
   return (
-    <box flexDirection="column" paddingY={1} gap={1}>
-      <box
-        flexDirection="row"
-        gap={1}
-        paddingX={1}
-        width="100%"
-        onMouseDown={toggle}
-      >
-        <text attributes={DIM}>{state.expanded ? "▾" : "▸"}</text>
-        <text>
+    <box flexDirection="column">
+      <box flexDirection="row" gap={1} width="100%" onMouseDown={toggle}>
+        <text fg={theme.text.base}>{state.expanded ? "▼" : "▶"}</text>
+        <text fg={theme.text.base}>
           <b>Scratchpad</b>
         </text>
       </box>
 
       <Show when={preview()}>
         {(view: () => { lines: string[]; truncated: boolean }) => (
-          <box flexDirection="column" gap={1} paddingX={1}>
+          <box flexDirection="column" gap={1}>
             <Show
               when={view().lines.length > 0}
-              fallback={<text attributes={DIM}>No notes yet</text>}
+              fallback={<text fg={theme.text.muted}>No notes yet</text>}
             >
               <box flexDirection="column">
                 <For each={view().lines}>
                   {(line) => (
-                    <text wrapMode="none" truncate>
+                    <text
+                      fg={theme.text.base}
+                      width="100%"
+                      wrapMode="none"
+                      truncate
+                    >
                       {line.length > 0 ? line : " "}
                     </text>
                   )}
                 </For>
                 <Show when={view().truncated}>
-                  <text attributes={DIM}>…</text>
+                  <text fg={theme.text.muted}>…</text>
                 </Show>
               </box>
             </Show>
-            <text attributes={DIM}>Use /scratch to edit</text>
+            <text fg={theme.text.muted}>Use /scratch to edit</text>
           </box>
         )}
       </Show>
@@ -145,6 +145,8 @@ function ScratchpadDialog(props: {
   onSaved: () => void;
 }) {
   const initial = safeRead(props.store);
+  // Captured, never destructured: each token is a live getter into the host theme.
+  const theme = props.ctx.theme;
   const [value, setValue] = createSignal(initial);
   const [dirty, setDirty] = createSignal(false);
 
@@ -258,13 +260,21 @@ function ScratchpadDialog(props: {
     }
   });
 
+  // The host shell pads top and paints the dialog surface; only the inset and
+  // bottom pad are the dialog's own job (DIALOG_INSET is 3 in the host).
   return (
-    <box flexDirection="column" gap={1} paddingLeft={2} paddingRight={2} paddingBottom={1}>
+    <box
+      flexDirection="column"
+      gap={1}
+      paddingLeft={3}
+      paddingRight={3}
+      paddingBottom={1}
+    >
       <box flexDirection="row" justifyContent="space-between" gap={2}>
-        <text>
+        <text fg={theme.text.base}>
           <b>Scratchpad</b>
         </text>
-        <text attributes={DIM}>esc</text>
+        <text fg={theme.text.muted}>esc</text>
       </box>
 
       <textarea
@@ -275,13 +285,20 @@ function ScratchpadDialog(props: {
         initialValue={initial}
         placeholder="Type your notes…"
         wrapMode="word"
+        textColor={theme.text.formfield.base}
+        placeholderColor={theme.text.muted}
         onContentChange={handleChange}
       />
 
       <box flexDirection="row" justifyContent="space-between" gap={2}>
-        <text attributes={DIM}>Enter adds a line · leader+e opens editor · Esc saves</text>
-        <Show when={dirty()} fallback={<text attributes={DIM}>saved</text>}>
-          <text>● unsaved</text>
+        <text fg={theme.text.muted}>
+          Enter adds a line · leader+e opens editor · Esc saves
+        </text>
+        <Show
+          when={dirty()}
+          fallback={<text fg={theme.text.feedback.success.muted}>saved</text>}
+        >
+          <text fg={theme.text.feedback.warning.base}>● unsaved</text>
         </Show>
       </box>
     </box>
