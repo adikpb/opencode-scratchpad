@@ -29,13 +29,13 @@ OpenCode sessions come and go, but every project accumulates little things worth
 
 ### From npm
 
-Install the plugin:
+OpenCode installs published plugins itself — do not `npm install` it into your project:
 
 ```sh
-npm install opencode-scratchpad
+opencode plugin add opencode-scratchpad
 ```
 
-Register it in your OpenCode config (V2 uses the `plugins` key). See [`examples/opencode.json`](./examples/opencode.json) for a minimal config:
+That installs the package and adds it to your global config. To configure it by hand instead, add it to `plugins` in `opencode.json(c)` (V2 uses the `plugins` key); OpenCode installs any missing package at startup. See [`examples/opencode.json`](./examples/opencode.json) for a minimal config:
 
 ```json
 {
@@ -43,6 +43,10 @@ Register it in your OpenCode config (V2 uses the `plugins` key). See [`examples/
   "plugins": ["opencode-scratchpad"]
 }
 ```
+
+Pin an exact version in production (e.g. `opencode-scratchpad@0.2.0`), since the V2 TUI plugin API is beta.
+
+Because this package exports a server part (`.`) alongside its TUI part (`./tui`), `opencode.json` is the correct file — `cli.json` is only for packages with a TUI part and no server part.
 
 ### Local development install
 
